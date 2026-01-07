@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 
 const WD_API = "https://www.wikidata.org/w/api.php"
 const WP_BASE = "https://en.wikipedia.org/wiki/"
@@ -9,8 +9,9 @@ const AVATAR_SIZE = 48
 // Wikidata properties
 const P_BIRTH = "P569" // date of birth
 const P_DEATH = "P570" // date of death
+const P_INSTANCE_OF = "P31" // instance of
+const Q_HUMAN = "Q5" // human
 
-// "+0482-03-15T00:00:00Z" -> 482, "-0044-00-00T00:00:00Z" -> -44
 const yearFromWikidataTime = (t) => {
   if (!t) return null
   const m = String(t).match(/^([+-])(\d{4,})-/)
@@ -31,7 +32,7 @@ const formatYear = (y) => {
 const calcAgeYears = (birthYear, deathYear) => {
   if (birthYear == null) return null
   if (deathYear == null) return null
-  if (birthYear < 0 || deathYear < 0) return null // keep prototype simple
+  if (birthYear < 0 || deathYear < 0) return null
   const age = deathYear - birthYear
   if (!Number.isFinite(age) || age < 0) return null
   return age
@@ -70,6 +71,17 @@ const yearFromClaimsStrict = (claims, prop) => {
   return null
 }
 
+const isHumanEntity = (entity) => {
+  const claims = entity?.claims || {}
+  const arr = claims?.[P_INSTANCE_OF]
+  if (!Array.isArray(arr)) return false
+  for (const c of arr) {
+    const id = c?.mainsnak?.datavalue?.value?.id
+    if (id === Q_HUMAN) return true
+  }
+  return false
+}
+
 const App = () => {
   const [q, setQ] = useState("")
   const [searchStatus, setSearchStatus] = useState("idle") // idle | loading | error
@@ -77,7 +89,8 @@ const App = () => {
   const [results, setResults] = useState([])
   const [rootId, setRootId] = useState(null)
 
-  const cache = useMemo(() => new Map(), [])
+  // ✅ useRef so mutating it doesn't trip compiler/lint rules
+  const cacheRef = useRef(new Map())
 
   const buildUrl = (params) => {
     const u = new URL(WD_API)
@@ -92,8 +105,9 @@ const App = () => {
     return r.json()
   }
 
+  // ✅ Search + filter to PEOPLE ONLY (P31=Q5)
   const searchEntities = async (query, signal) => {
-    const url = buildUrl({
+    const searchUrl = buildUrl({
       action: "wbsearchentities",
       format: "json",
       language: "en",
@@ -102,9 +116,29 @@ const App = () => {
       search: query,
       limit: "12",
     })
-    const json = await fetchJson(url, signal)
-    const hits = Array.isArray(json.search) ? json.search : []
-    return hits.map((x) => ({
+
+    const searchJson = await fetchJson(searchUrl, signal)
+    const hits = Array.isArray(searchJson.search) ? searchJson.search : []
+    if (!hits.length) return []
+
+    const ids = hits
+      .map((x) => x.id)
+      .filter(Boolean)
+      .join("|")
+    const entsUrl = buildUrl({
+      action: "wbgetentities",
+      format: "json",
+      languages: "en",
+      props: "claims",
+      ids,
+    })
+
+    const entsJson = await fetchJson(entsUrl, signal)
+    const entities = entsJson?.entities || {}
+
+    const peopleHits = hits.filter((h) => isHumanEntity(entities[h.id]))
+
+    return peopleHits.map((x) => ({
       id: x.id,
       label: x.label || x.id,
       description: x.description || "",
@@ -112,6 +146,7 @@ const App = () => {
   }
 
   const getEntity = async (qid, signal) => {
+    const cache = cacheRef.current
     if (cache.has(qid)) return cache.get(qid)
 
     const url = buildUrl({
@@ -166,13 +201,13 @@ const App = () => {
       ? makeCommonsImageUrl(imageFilename, AVATAR_SIZE * 2)
       : ""
 
-    // ✅ strict years only
     let birthYear = yearFromClaimsStrict(claims, P_BIRTH)
     let deathYear = yearFromClaimsStrict(claims, P_DEATH)
 
-    // ✅ reject impossible (birth after death) without "hacks"
+    // reject impossible
     if (birthYear != null && deathYear != null && birthYear > deathYear) {
       birthYear = null
+      deathYear = null
     }
 
     const age = calcAgeYears(birthYear, deathYear)
@@ -195,13 +230,9 @@ const App = () => {
       new Set(arr.filter((x) => typeof x === "string" && /^Q\d+$/.test(x)))
     )
 
+  // ✅ Effect does ONLY the async search (no synchronous resets)
   useEffect(() => {
-    if (!q.trim() || rootId) {
-      setResults([])
-      setSearchStatus("idle")
-      setSearchErr("")
-      return
-    }
+    if (!q.trim() || rootId) return
 
     const ac = new AbortController()
     const t = setTimeout(async () => {
@@ -237,7 +268,16 @@ const App = () => {
               style={styles.input}
               value={q}
               onChange={(e) => {
-                setQ(e.target.value)
+                const next = e.target.value
+                setQ(next)
+
+                // ✅ resets happen in handlers, not in effects
+                if (!next.trim()) {
+                  setResults([])
+                  setSearchStatus("idle")
+                  setSearchErr("")
+                }
+
                 if (rootId) setRootId(null)
               }}
               placeholder="Search (e.g. Justinian, Charlemagne, Taejo of Joseon)…"
@@ -389,7 +429,7 @@ const PersonNode = ({
             loading="lazy"
           />
         ) : (
-          <div style={styles.avatarPh} aria-hidden="true" />
+          <span style={styles.avatarSmallPh} aria-hidden="true" />
         )}
 
         <div style={styles.personHeaderText}>
@@ -591,7 +631,7 @@ const styles = {
   h1: { fontSize: 20, fontWeight: 800 },
 
   card: {
-    border: "1px solid #333333",
+    border: "1px solid",
     borderRadius: 5,
     padding: 12,
     marginBottom: 12,
@@ -604,7 +644,7 @@ const styles = {
     width: "100%",
     padding: "10px 38px 10px 12px",
     borderRadius: 5,
-    border: "1px solid #333",
+    border: "1px solid",
     outline: "none",
   },
 
@@ -625,7 +665,7 @@ const styles = {
     textAlign: "left",
     padding: "10px 12px",
     borderRadius: 5,
-    border: "1px solid #333",
+    border: "1px solid",
     cursor: "pointer",
     background: "transparent", // or "#fff"
     appearance: "none",
@@ -661,8 +701,8 @@ const styles = {
   },
   lifeText: { fontSize: 13, fontWeight: 700 },
   lifeBadge: {
-    border: "1px solid #fff",
-    borderRadius: 5,
+    border: "1px solid",
+    borderRadius: 999,
     padding: "2px 8px",
     fontSize: 12,
 
@@ -674,14 +714,14 @@ const styles = {
     height: AVATAR_SIZE,
     borderRadius: 5,
     objectFit: "cover",
-    border: "1px solid #333333",
+    border: "1px solid",
     flex: "0 0 auto",
   },
   avatarPh: {
     width: AVATAR_SIZE,
     height: AVATAR_SIZE,
     borderRadius: 5,
-    border: "1px solid #333333",
+    border: "1px solid",
     flex: "0 0 auto",
   },
 
@@ -690,14 +730,14 @@ const styles = {
     height: 18,
     borderRadius: 5,
     objectFit: "cover",
-    border: "1px solid #333",
+    border: "1px solid",
     flex: "0 0 auto",
   },
   avatarSmallPh: {
     width: 18,
     height: 18,
     borderRadius: 5,
-    border: "1px solid #333",
+    border: "1px solid",
     display: "inline-block",
     flex: "0 0 auto",
   },
@@ -719,7 +759,7 @@ const styles = {
 
   acc: {
     marginTop: 10,
-    border: "1px solid #000",
+    border: "1px solid",
     borderRadius: 5,
     overflow: "hidden",
   },
@@ -734,7 +774,7 @@ const styles = {
   },
   body: { padding: "10px 12px" },
   count: {
-    border: "1px solid #000",
+    border: "1px solid",
     borderRadius: 5,
     padding: "2px 8px",
     fontSize: 12,
@@ -782,10 +822,10 @@ const styles = {
     whiteSpace: "nowrap",
   },
   inlineAge: {
-    border: "1px solid #000",
+    border: "1px solid",
     borderRadius: 999,
-    padding: "1px 6px",
-    fontSize: 11,
+    padding: "2px 8px",
+    fontSize: 12,
     fontWeight: 800,
     whiteSpace: "nowrap",
   },
