@@ -258,7 +258,9 @@ const App = () => {
   return (
     <div style={styles.page}>
       <div style={styles.header}>
-        <div style={styles.h1}>People of History</div>
+        <div style={{ ...styles.h1, textTransform: "uppercase" }}>
+          Bloodlines
+        </div>
       </div>
 
       <div style={styles.card}>
@@ -352,28 +354,6 @@ const App = () => {
   )
 }
 
-const LifeMeta = ({ birthYear, deathYear, age }) => {
-  if (birthYear == null && deathYear == null) return null
-
-  const both = birthYear != null && deathYear != null
-
-  return (
-    <div style={styles.lifeRow}>
-      <span style={styles.lifeText}>
-        {both
-          ? `${formatYear(birthYear)} – ${formatYear(deathYear)}`
-          : birthYear != null
-          ? `born ${formatYear(birthYear)}`
-          : `died ${formatYear(deathYear)}`}
-      </span>
-
-      {both && age != null ? (
-        <span style={styles.lifeBadge}>died at {age}</span>
-      ) : null}
-    </div>
-  )
-}
-
 const PersonNode = ({
   qid,
   depth,
@@ -384,6 +364,51 @@ const PersonNode = ({
   const [status, setStatus] = useState("loading")
   const [err, setErr] = useState("")
   const [p, setP] = useState(null)
+  const [sibStatus, setSibStatus] = useState("idle") // idle | loading | error
+  const [siblings, setSiblings] = useState([])
+
+  useEffect(() => {
+    if (!p) return
+
+    const ac = new AbortController()
+
+    const run = async () => {
+      try {
+        setSibStatus("loading")
+        setSiblings([])
+
+        const parentIds = uniqQids([
+          ...qidsFromClaims(p.claims, "P22"),
+          ...qidsFromClaims(p.claims, "P25"),
+        ])
+
+        if (!parentIds.length) {
+          setSibStatus("idle")
+          setSiblings([])
+          return
+        }
+
+        // Fetch each parent, then pull their children (P40)
+        const parentCores = await Promise.all(
+          parentIds.map((pid) => getLabelDescClaimsAndWiki(pid, ac.signal))
+        )
+
+        const sibQids = uniqQids(
+          parentCores.flatMap((par) => qidsFromClaims(par.claims, "P40"))
+        ).filter((id) => id !== p.id) // remove self
+
+        setSiblings(sibQids)
+        setSibStatus("idle")
+      } catch (e) {
+        if (e?.name === "AbortError") return
+        setSibStatus("error")
+        setSiblings([])
+      }
+    }
+
+    run()
+    return () => ac.abort()
+  }, [p, getLabelDescClaimsAndWiki, qidsFromClaims, uniqQids])
 
   useEffect(() => {
     const ac = new AbortController()
@@ -455,6 +480,35 @@ const PersonNode = ({
           ) : (
             <div style={styles.nested}>
               {parents.map((relId) => (
+                <RelativeRow
+                  key={relId}
+                  relId={relId}
+                  depth={depth}
+                  getLabelDescClaimsAndWiki={getLabelDescClaimsAndWiki}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </details>
+      <details style={styles.acc}>
+        <summary style={styles.sum}>
+          <span>Siblings</span>
+          <span style={styles.count}>{siblings.length}</span>
+        </summary>
+
+        <div style={styles.body}>
+          {sibStatus === "loading" ? (
+            <div style={styles.muted}>Loading…</div>
+          ) : sibStatus === "error" ? (
+            <div style={styles.muted}>Couldn’t load.</div>
+          ) : !siblings.length ? (
+            <div style={styles.muted}>No siblings found.</div>
+          ) : depth >= MAX_DEPTH ? (
+            <div style={styles.muted}>Depth limit reached.</div>
+          ) : (
+            <div style={styles.nested}>
+              {siblings.map((relId) => (
                 <RelativeRow
                   key={relId}
                   relId={relId}
@@ -667,7 +721,7 @@ const styles = {
     borderRadius: 5,
     border: "1px solid",
     cursor: "pointer",
-    background: "transparent", // or "#fff"
+    background: "transparent",
     appearance: "none",
     WebkitAppearance: "none",
     outline: "none",
@@ -784,7 +838,7 @@ const styles = {
   nested: { display: "grid", gap: 10 },
 
   childAcc: {
-    border: "1px dashed #333333",
+    border: "1px dashed",
     borderRadius: 5,
     background: "transparent",
     overflow: "hidden",
