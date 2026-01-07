@@ -8,4 +8,6 @@ body {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  font-family: "Libre Baskerville", "Noto Sans KR", Georgia, serif;
+  font-size: 18px;
 }

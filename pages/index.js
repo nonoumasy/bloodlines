@@ -4,7 +4,7 @@ const WD_API = "https://www.wikidata.org/w/api.php"
 const WP_BASE = "https://en.wikipedia.org/wiki/"
 const COMMONS_FILEPATH = "https://commons.wikimedia.org/wiki/Special:FilePath/"
 const MAX_DEPTH = 3
-const AVATAR_SIZE = 48
+const AVATAR_SIZE = 60
 
 // Wikidata properties
 const P_BIRTH = "P569" // date of birth
@@ -316,7 +316,7 @@ const App = () => {
                 }}
                 title="Clear"
               >
-                ×
+                ❌
               </button>
             ) : null}
           </div>
@@ -347,9 +347,7 @@ const App = () => {
                 >
                   <div style={styles.resultTitle}>{r.label}</div>
                   <div style={styles.resultMeta}>
-                    {r.description ? (
-                      <span style={styles.desc}>{r.description}</span>
-                    ) : null}
+                    {r.description ? <span>{r.description}</span> : null}
                   </div>
                 </button>
               ))}
@@ -510,7 +508,7 @@ const PersonNode = ({
                   onClick={(e) => e.stopPropagation()}
                   title="Open Wikipedia"
                 >
-                  Wiki ↗
+                  Wiki
                 </a>
               ) : null}
             </span>
@@ -645,8 +643,8 @@ const RelativeRow = ({ relId, depth, getLabelDescClaimsAndWiki }) => {
             <img
               src={imageUrl}
               alt={label}
-              width={22}
-              height={22}
+              width={30}
+              height={30}
               style={styles.avatarSmall}
               loading="lazy"
               onClick={(e) => e.stopPropagation()}
@@ -689,12 +687,10 @@ const RelativeRow = ({ relId, depth, getLabelDescClaimsAndWiki }) => {
               onClick={(e) => e.stopPropagation()}
               title="Open Wikipedia"
             >
-              Wiki ↗
+              Wiki
             </a>
           ) : (
-            <span style={styles.mutedSmall}>
-              {status === "loading" ? "…" : "No Wiki"}
-            </span>
+            <span>{status === "loading" ? "…" : "No Wiki"}</span>
           )}
         </span>
       </summary>
@@ -745,7 +741,7 @@ const styles = {
     minHeight: "100dvh",
   },
   header: { marginBottom: 12 },
-  h1: { fontSize: 20, fontWeight: 800 },
+  h1: { fontSize: 30, fontWeight: "bold" },
 
   card: {
     border: "1px solid",
@@ -759,10 +755,11 @@ const styles = {
 
   input: {
     width: "100%",
-    padding: "10px 38px 10px 12px",
+    padding: "10px 40px 10px 10px",
     borderRadius: 5,
     border: "1px solid",
     outline: "none",
+    backgroundColor: "transparent",
   },
 
   clearX: {
@@ -772,7 +769,6 @@ const styles = {
     transform: "translateY(-50%)",
     background: "transparent",
     border: "none",
-    fontSize: 18,
     cursor: "pointer",
     lineHeight: 1,
   },
@@ -780,7 +776,7 @@ const styles = {
   results: { marginTop: 10, display: "grid", gap: 8 },
   resultBtn: {
     textAlign: "left",
-    padding: "10px 12px",
+    padding: 10,
     borderRadius: 5,
     border: "1px solid",
     cursor: "pointer",
@@ -789,36 +785,32 @@ const styles = {
     WebkitAppearance: "none",
     outline: "none",
   },
-  resultTitle: { fontWeight: 800, marginBottom: 4 },
+  resultTitle: { fontWeight: "bold", marginBottom: 4 },
   resultMeta: {
     display: "flex",
     gap: 8,
     alignItems: "center",
     flexWrap: "wrap",
   },
-  desc: { fontSize: 12 },
 
   muted: { marginTop: 8 },
-  mutedSmall: { fontSize: 12 },
   err: { marginTop: 8 },
 
   node: { paddingTop: 2 },
 
   personHeader: { display: "flex", gap: 10, alignItems: "center" },
   personHeaderText: { minWidth: 0, flex: 1 },
-  nodeTitle: { fontSize: 16, fontWeight: 800, lineHeight: 1.1 },
+  nodeTitle: { fontWeight: "bold", lineHeight: 1.1 },
   headerLinks: { marginTop: 6 },
 
   genderIcon: {
     marginLeft: 6,
-    fontSize: 14,
-    fontWeight: 800,
+    fontWeight: "bold",
   },
 
   genderIconInline: {
     marginLeft: 6,
-    fontSize: 12,
-    fontWeight: 800,
+    fontWeight: "bold",
     opacity: 0.75,
   },
 
@@ -850,8 +842,7 @@ const styles = {
 
   linkSmall: {
     textDecoration: "none",
-    fontWeight: 800,
-    fontSize: 12,
+    fontWeight: "bold",
     whiteSpace: "nowrap",
     color: "crimson",
   },
@@ -869,15 +860,14 @@ const styles = {
     justifyContent: "space-between",
     alignItems: "center",
     userSelect: "none",
-    fontWeight: 800,
+    fontWeight: "bold",
   },
   body: { padding: "10px 12px" },
   count: {
     border: "1px solid",
     borderRadius: 5,
     padding: "2px 8px",
-    fontSize: 12,
-    fontWeight: 800,
+    fontWeight: "bold",
   },
 
   nested: { display: "grid", gap: 10 },
@@ -895,8 +885,7 @@ const styles = {
     justifyContent: "space-between",
     alignItems: "center",
     userSelect: "none",
-    fontWeight: 800,
-    fontSize: 13,
+    fontWeight: "bold",
     gap: 10,
   },
   childLeft: {
@@ -916,7 +905,6 @@ const styles = {
   childRight: { display: "inline-flex", gap: 8, alignItems: "center" },
 
   inlineLife: {
-    fontSize: 12,
     fontWeight: 700,
     whiteSpace: "nowrap",
   },
@@ -924,8 +912,7 @@ const styles = {
     border: "1px solid",
     borderRadius: 999,
     padding: "2px 8px",
-    fontSize: 12,
-    fontWeight: 800,
+    fontWeight: "bold",
     whiteSpace: "nowrap",
   },
 }
