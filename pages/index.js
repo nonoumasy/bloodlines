@@ -668,7 +668,7 @@ const RelativeRow = ({ relId, depth, getLabelDescClaimsAndWiki }) => {
                 ? `${formatYear(birthYear)} – ${formatYear(deathYear)}`
                 : birthYear != null
                 ? `born ${formatYear(birthYear)}`
-                : `died ${formatYear(deathYear)}`}
+                : `? – ${formatYear(deathYear)}`}
             </span>
           ) : null}
 
