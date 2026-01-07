@@ -853,6 +853,7 @@ const styles = {
     fontWeight: 800,
     fontSize: 12,
     whiteSpace: "nowrap",
+    color: "crimson",
   },
 
   acc: {
