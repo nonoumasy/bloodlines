@@ -11,6 +11,22 @@ const P_BIRTH = "P569" // date of birth
 const P_DEATH = "P570" // date of death
 const P_INSTANCE_OF = "P31" // instance of
 const Q_HUMAN = "Q5" // human
+const P_GENDER = "P21" // sex or gender
+
+// only accept these, everything else => unknown
+const Q_MALE = "Q6581097"
+const Q_FEMALE = "Q6581072"
+
+const genderFromClaims = (claims) => {
+  const arr = claims?.[P_GENDER]
+  if (!Array.isArray(arr)) return "unknown"
+  for (const c of arr) {
+    const id = c?.mainsnak?.datavalue?.value?.id
+    if (id === Q_MALE) return "male"
+    if (id === Q_FEMALE) return "female"
+  }
+  return "unknown"
+}
 
 const yearFromWikidataTime = (t) => {
   if (!t) return null
@@ -28,7 +44,7 @@ const formatYear = (y) => {
   return `${y}`
 }
 
-// ✅ Only compute age if BOTH birth and death exist.
+// Only compute age if BOTH birth and death exist.
 const calcAgeYears = (birthYear, deathYear) => {
   if (birthYear == null) return null
   if (deathYear == null) return null
@@ -48,7 +64,7 @@ const firstStringFromClaims = (claims, prop) => {
   return ""
 }
 
-// ✅ Strict: only accept time values with year-or-better precision (>= 9)
+// Strict: only accept time values with year-or-better precision (>= 9)
 const yearFromClaimsStrict = (claims, prop) => {
   const arr = claims?.[prop]
   if (!Array.isArray(arr)) return null
@@ -89,7 +105,7 @@ const App = () => {
   const [results, setResults] = useState([])
   const [rootId, setRootId] = useState(null)
 
-  // ✅ useRef so mutating it doesn't trip compiler/lint rules
+  // useRef so mutating it doesn't trip compiler/lint rules
   const cacheRef = useRef(new Map())
 
   const buildUrl = (params) => {
@@ -105,7 +121,7 @@ const App = () => {
     return r.json()
   }
 
-  // ✅ Search + filter to PEOPLE ONLY (P31=Q5)
+  // Search + filter to PEOPLE ONLY (P31=Q5)
   const searchEntities = async (query, signal) => {
     const searchUrl = buildUrl({
       action: "wbsearchentities",
@@ -125,6 +141,7 @@ const App = () => {
       .map((x) => x.id)
       .filter(Boolean)
       .join("|")
+
     const entsUrl = buildUrl({
       action: "wbgetentities",
       format: "json",
@@ -185,11 +202,14 @@ const App = () => {
 
     const label =
       e.labels?.en?.value || Object.values(e.labels || {})[0]?.value || qid
+
     const description =
       e.descriptions?.en?.value ||
       Object.values(e.descriptions || {})[0]?.value ||
       ""
+
     const claims = e.claims || {}
+    const gender = genderFromClaims(claims)
 
     const enTitle = e.sitelinks?.enwiki?.title || ""
     const wikipediaUrl = enTitle
@@ -197,9 +217,7 @@ const App = () => {
       : ""
 
     const imageFilename = firstStringFromClaims(claims, "P18")
-    const imageUrl = imageFilename
-      ? makeCommonsImageUrl(imageFilename, AVATAR_SIZE * 2)
-      : ""
+    const imageUrl = makeCommonsImageUrl(imageFilename, AVATAR_SIZE * 2)
 
     let birthYear = yearFromClaimsStrict(claims, P_BIRTH)
     let deathYear = yearFromClaimsStrict(claims, P_DEATH)
@@ -222,6 +240,7 @@ const App = () => {
       birthYear,
       deathYear,
       age,
+      gender,
     }
   }
 
@@ -230,7 +249,7 @@ const App = () => {
       new Set(arr.filter((x) => typeof x === "string" && /^Q\d+$/.test(x)))
     )
 
-  // ✅ Effect does ONLY the async search (no synchronous resets)
+  // Effect does ONLY the async search (no synchronous resets)
   useEffect(() => {
     if (!q.trim() || rootId) return
 
@@ -273,7 +292,7 @@ const App = () => {
                 const next = e.target.value
                 setQ(next)
 
-                // ✅ resets happen in handlers, not in effects
+                // resets happen in handlers, not in effects
                 if (!next.trim()) {
                   setResults([])
                   setSearchStatus("idle")
@@ -284,6 +303,7 @@ const App = () => {
               }}
               placeholder="Search (e.g. Justinian, Charlemagne, Taejo of Joseon)…"
             />
+
             {q ? (
               <button
                 style={styles.clearX}
@@ -305,6 +325,7 @@ const App = () => {
         {searchStatus === "loading" && !rootId ? (
           <div style={styles.muted}>Searching…</div>
         ) : null}
+
         {searchStatus === "error" && !rootId ? (
           <div style={styles.err}>{searchErr}</div>
         ) : null}
@@ -364,9 +385,35 @@ const PersonNode = ({
   const [status, setStatus] = useState("loading")
   const [err, setErr] = useState("")
   const [p, setP] = useState(null)
+
   const [sibStatus, setSibStatus] = useState("idle") // idle | loading | error
   const [siblings, setSiblings] = useState([])
 
+  // 1) Load this person
+  useEffect(() => {
+    const ac = new AbortController()
+    const run = async () => {
+      try {
+        setStatus("loading")
+        setErr("")
+        setP(null)
+        setSiblings([])
+        setSibStatus("idle")
+
+        const core = await getLabelDescClaimsAndWiki(qid, ac.signal)
+        setP(core)
+        setStatus("ready")
+      } catch (e) {
+        if (e?.name === "AbortError") return
+        setStatus("error")
+        setErr(e?.message || "Load failed")
+      }
+    }
+    run()
+    return () => ac.abort()
+  }, [qid, getLabelDescClaimsAndWiki])
+
+  // 2) Derive siblings (hook is ALWAYS called; it just no-ops until p exists)
   useEffect(() => {
     if (!p) return
 
@@ -377,25 +424,24 @@ const PersonNode = ({
         setSibStatus("loading")
         setSiblings([])
 
-        const parentIds = uniqQids([
+        const parents = uniqQids([
           ...qidsFromClaims(p.claims, "P22"),
           ...qidsFromClaims(p.claims, "P25"),
         ])
 
-        if (!parentIds.length) {
+        if (!parents.length) {
           setSibStatus("idle")
           setSiblings([])
           return
         }
 
-        // Fetch each parent, then pull their children (P40)
         const parentCores = await Promise.all(
-          parentIds.map((pid) => getLabelDescClaimsAndWiki(pid, ac.signal))
+          parents.map((pid) => getLabelDescClaimsAndWiki(pid, ac.signal))
         )
 
         const sibQids = uniqQids(
           parentCores.flatMap((par) => qidsFromClaims(par.claims, "P40"))
-        ).filter((id) => id !== p.id) // remove self
+        ).filter((id) => id !== p.id)
 
         setSiblings(sibQids)
         setSibStatus("idle")
@@ -410,33 +456,17 @@ const PersonNode = ({
     return () => ac.abort()
   }, [p, getLabelDescClaimsAndWiki, qidsFromClaims, uniqQids])
 
-  useEffect(() => {
-    const ac = new AbortController()
-    const run = async () => {
-      try {
-        setStatus("loading")
-        setErr("")
-        setP(null)
-        const core = await getLabelDescClaimsAndWiki(qid, ac.signal)
-        setP(core)
-        setStatus("ready")
-      } catch (e) {
-        if (e?.name === "AbortError") return
-        setStatus("error")
-        setErr(e?.message || "Load failed")
-      }
-    }
-    run()
-    return () => ac.abort()
-  }, [qid, getLabelDescClaimsAndWiki])
-
+  // render guards AFTER hooks
   if (status === "loading") return <div style={styles.muted}>Loading…</div>
   if (status === "error") return <div style={styles.err}>{err}</div>
   if (!p) return null
 
+  const genderIcon =
+    p.gender === "male" ? "♂" : p.gender === "female" ? "♀" : "?"
+
   const parents = uniqQids([
-    ...qidsFromClaims(p.claims, "P22"), // father
-    ...qidsFromClaims(p.claims, "P25"), // mother
+    ...qidsFromClaims(p.claims, "P22"),
+    ...qidsFromClaims(p.claims, "P25"),
   ])
 
   const children = uniqQids(qidsFromClaims(p.claims, "P40"))
@@ -454,11 +484,22 @@ const PersonNode = ({
             loading="lazy"
           />
         ) : (
-          <span style={styles.avatarSmallPh} aria-hidden="true" />
+          <img
+            src={
+              "https://i.pinimg.com/1200x/27/ff/37/27ff3733ece0a0d09d76d1288f2dbef4.jpg"
+            }
+            alt={p.label}
+            width={AVATAR_SIZE}
+            height={AVATAR_SIZE}
+            style={styles.avatar}
+            loading="lazy"
+          />
         )}
 
         <div style={styles.personHeaderText}>
-          <div style={styles.nodeTitle}>{p.label}</div>
+          <div style={styles.nodeTitle}>
+            {p.label} <span style={styles.genderIcon}>{genderIcon}</span>
+          </div>
 
           {p.description ? (
             <div style={styles.muted}>{p.description}</div>
@@ -491,6 +532,7 @@ const PersonNode = ({
           )}
         </div>
       </details>
+
       <details style={styles.acc}>
         <summary style={styles.sum}>
           <span>Siblings</span>
@@ -598,7 +640,14 @@ const RelativeRow = ({ relId, depth, getLabelDescClaimsAndWiki }) => {
             <span style={styles.avatarSmallPh} aria-hidden="true" />
           )}
 
-          <span style={styles.childTitle}>{label}</span>
+          <span style={styles.childTitle}>
+            {label}
+            {p?.gender && (
+              <span style={styles.genderIconInline}>
+                {p.gender === "male" ? "♂" : p.gender === "female" ? "♀" : "?"}
+              </span>
+            )}
+          </span>
 
           {birthYear != null || deathYear != null ? (
             <span style={styles.inlineLife}>
@@ -678,7 +727,6 @@ const styles = {
     padding: 20,
     fontFamily:
       'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial',
-
     minHeight: "100dvh",
   },
   header: { marginBottom: 12 },
@@ -746,21 +794,17 @@ const styles = {
   nodeTitle: { fontSize: 16, fontWeight: 800, lineHeight: 1.1 },
   headerLinks: { marginTop: 6 },
 
-  lifeRow: {
-    marginTop: 8,
-    display: "flex",
-    gap: 8,
-    alignItems: "center",
-    flexWrap: "wrap",
-  },
-  lifeText: { fontSize: 13, fontWeight: 700 },
-  lifeBadge: {
-    border: "1px solid",
-    borderRadius: 999,
-    padding: "2px 8px",
-    fontSize: 12,
-
+  genderIcon: {
+    marginLeft: 6,
+    fontSize: 14,
     fontWeight: 800,
+  },
+
+  genderIconInline: {
+    marginLeft: 6,
+    fontSize: 12,
+    fontWeight: 800,
+    opacity: 0.75,
   },
 
   avatar: {
@@ -768,13 +812,6 @@ const styles = {
     height: AVATAR_SIZE,
     borderRadius: 5,
     objectFit: "cover",
-    border: "1px solid",
-    flex: "0 0 auto",
-  },
-  avatarPh: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: 5,
     border: "1px solid",
     flex: "0 0 auto",
   },
@@ -796,13 +833,6 @@ const styles = {
     flex: "0 0 auto",
   },
 
-  link: {
-    color: "#000",
-    textDecoration: "none",
-    fontWeight: 800,
-    fontSize: 13,
-    whiteSpace: "nowrap",
-  },
   linkSmall: {
     color: "#000",
     textDecoration: "none",
