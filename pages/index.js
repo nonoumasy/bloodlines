@@ -385,7 +385,6 @@ const PersonNode = ({
   const [status, setStatus] = useState("loading")
   const [err, setErr] = useState("")
   const [p, setP] = useState(null)
-
   const [sibStatus, setSibStatus] = useState("idle") // idle | loading | error
   const [siblings, setSiblings] = useState([])
 
@@ -498,7 +497,23 @@ const PersonNode = ({
 
         <div style={styles.personHeaderText}>
           <div style={styles.nodeTitle}>
-            {p.label} <span style={styles.genderIcon}>{genderIcon}</span>
+            {p.label}{" "}
+            <span style={styles.genderIcon}>
+              {genderIcon}
+
+              {p.wikipediaUrl ? (
+                <a
+                  href={p.wikipediaUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ ...styles.linkSmall, marginLeft: 10 }}
+                  onClick={(e) => e.stopPropagation()}
+                  title="Open Wikipedia"
+                >
+                  Wiki ↗
+                </a>
+              ) : null}
+            </span>
           </div>
 
           {p.description ? (
@@ -785,7 +800,7 @@ const styles = {
 
   muted: { marginTop: 8 },
   mutedSmall: { fontSize: 12 },
-  err: { color: "red", marginTop: 8 },
+  err: { marginTop: 8 },
 
   node: { paddingTop: 2 },
 
@@ -834,7 +849,6 @@ const styles = {
   },
 
   linkSmall: {
-    color: "#000",
     textDecoration: "none",
     fontWeight: 800,
     fontSize: 12,
